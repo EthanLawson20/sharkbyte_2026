@@ -1,0 +1,5 @@
+/data/*
+!/data/frames_filtered/
+/data/frames_filtered/*
+!/data/frames_filtered/**/
+!/data/frames_filtered/**/*.jpg
