@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pill sorter: live view</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#0b0f14;--panel:#141a22;--ink:#e7edf5;--mute:#98a6b8;--line:#2a3442;--accent:#3b82f6;
+--a:#d9482b;--b:#2f6fd0;--c:#3f9a5b;--ok:#2f8f5b;--warn:#c98a12;--bad:#c2392b;
+--sans:"Familjen Grotesk",system-ui,sans-serif;--mono:"Spline Sans Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--sans)}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line)}
+h1{font-size:20px;margin:0;font-weight:700;letter-spacing:-.01em}
+.status{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:13px;color:var(--mute)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}
+.dot.live{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
+main{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:16px;padding:16px 20px;max-width:1400px;margin:0 auto}
+@media(max-width:860px){main{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.stage{position:relative;aspect-ratio:4/3;background:#0d1214;border-radius:6px 6px 0 0;overflow:hidden}
+.stage video,.stage img,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage .msg{position:absolute;inset:0;display:grid;place-items:center;color:#9fb2b7;font-size:14px;text-align:center;padding:20px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+select,input[type=text],button{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 10px}
+input[type=text]{flex:1;min-width:180px;font-family:var(--mono);font-size:13px}
+button{cursor:pointer}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+label.chk{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--mute)}
+.side{display:flex;flex-direction:column;gap:16px}
+.sec{padding:14px}
+h2{font-size:14px;margin:0 0 10px;font-weight:600}
+.bins{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bin{border:1px solid var(--line);border-left:5px solid var(--c0);border-radius:4px;padding:8px 10px}
+.bin b{display:block;font-size:28px;line-height:1.1;font-variant-numeric:tabular-nums}
+.bin span{font-size:12px;color:var(--mute)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-family:var(--mono);font-size:13px;margin:0}
+.kv dt{color:var(--mute)}.kv dd{margin:0;text-align:right}
+.pill-state{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--bg);border:1px solid var(--line)}
+#log{height:190px;overflow:auto;font-family:var(--mono);font-size:12px;margin:0;padding:0;list-style:none}
+#log li{padding:3px 0;border-bottom:1px dashed var(--line)}#log time{color:var(--mute);margin-right:8px}
+.acc{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:8px}.acc i{display:block;height:100%;background:var(--ok);width:0}
+@media(prefers-reduced-motion:no-preference){.acc i{transition:width .4s}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pill sorter: live view</h1>
+  <div class="status"><span class="dot" id="dot"></span><span id="conn">Disconnected</span><span id="fps"></span></div>
+</header>
+<main>
+  <section class="panel" aria-label="Camera feed">
+    <div class="stage" id="stage">
+      <img id="mjpeg" alt="Camera stream" hidden>
+      <video id="cam" autoplay muted playsinline hidden></video>
+      <canvas id="overlay"></canvas>
+      <div class="msg" id="msg">Pick a source and press Connect.</div>
+    </div>
+    <div class="bar">
+      <select id="src" aria-label="Video source">
+        <option value="demo">Demo (simulated)</option>
+        <option value="mjpeg">Robot stream (MJPEG)</option>
+        <option value="webcam">This computer's webcam</option>
+      </select>
+      <input type="text" id="url" value="http://localhost:5000" aria-label="Server address">
+      <button class="primary" id="go">Connect</button>
+      <button id="stop">Stop</button>
+      <label class="chk"><input type="checkbox" id="boxes" checked>Boxes</label>
+      <label class="chk"><input type="checkbox" id="conf" checked>Confidence</label>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section class="panel sec">
+      <h2>Sorted into bins</h2>
+      <div class="bins" id="bins"></div>
+      <div class="acc" title="Share of picks that landed in the right bin"><i id="accbar"></i></div>
+      <p class="kv" style="margin-top:6px"><span>Sort accuracy</span><span id="acc" style="text-align:right">n/a</span></p>
+    </section>
+    <section class="panel sec">
+      <h2>Robot</h2>
+      <dl class="kv">
+        <dt>State</dt><dd><span class="pill-state" id="rstate">idle</span></dd>
+        <dt>Target</dt><dd id="rtarget">none</dd>
+        <dt>Pills in view</dt><dd id="rview">0</dd>
+        <dt>Picks / min</dt><dd id="rate">0</dd>
+        <dt>Inference</dt><dd id="lat">n/a</dd>
+      </dl>
+    </section>
+    <section class="panel sec">
+      <h2>Event log</h2>
+      <ul id="log"></ul>
+    </section>
+  </aside>
+</main>
+
+<script>
+const CLASSES = [
+  {id:'capsule', name:'Red tablet',   color:'#d9482b'},
+  {id:'round',   name:'Blue tablet',  color:'#2f6fd0'},
+  {id:'oval',    name:'Green tablet', color:'#3f9a5b'}
+];
+const $ = id => document.getElementById(id);
+const counts = Object.fromEntries(CLASSES.map(c => [c.id, 0]));
+let mode = null, timer = null, raf = null, dets = [], picks = [], errors = 0, frames = 0, lastT = performance.now();
+
+// bins
+$('bins').innerHTML = CLASSES.map(c =>
+  `<div class="bin" style="--c0:${c.color}"><b id="n-${c.id}">0</b><span>${c.name}</span></div>`).join('');
+
+function log(text){
+  const li = document.createElement('li');
+  li.innerHTML = `<time>${new Date().toLocaleTimeString()}</time>`;
+  li.append(text);
+  $('log').prepend(li);
+  while ($('log').children.length > 100) $('log').lastChild.remove();
+}
+function setLive(on, label){
+  $('dot').classList.toggle('live', on);
+  $('conn').textContent = label;
+  if (!on) $('fps').textContent = '';
+}
+function showMsg(t){ $('msg').textContent = t; $('msg').hidden = !t; }
+
+function render(state){
+  dets = state.detections || [];
+  Object.assign(counts, state.counts || {});
+  CLASSES.forEach(c => $('n-'+c.id).textContent = counts[c.id] ?? 0);
+  const r = state.robot || {};
+  $('rstate').textContent = r.state || 'idle';
+  $('rtarget').textContent = r.target || 'none';
+  $('rview').textContent = dets.length;
+  $('rate').textContent = r.picks_per_min ?? 0;
+  $('lat').textContent = r.latency_ms != null ? r.latency_ms + ' ms' : 'n/a';
+  const total = CLASSES.reduce((s,c) => s + (counts[c.id]||0), 0);
+  const wrong = state.mis_sorts ?? 0;
+  if (total > 0){
+    const a = Math.max(0, 100 * (1 - wrong/total));
+    $('acc').textContent = a.toFixed(1) + '%'; $('accbar').style.width = a + '%';
+  }
+  (state.events || []).forEach(log);
+}
+
+// overlay drawing (detections in normalised 0..1 coords)
+const cv = $('overlay'), ctx = cv.getContext('2d');
+function draw(){
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w) { cv.width = w; cv.height = h; }
+  ctx.clearRect(0,0,w,h);
+  if ($('boxes').checked){
+    // match the object-fit:contain area of a 4:3 frame
+    const fw = Math.min(w, h*4/3), fh = fw*3/4, ox = (w-fw)/2, oy = (h-fh)/2;
+    ctx.lineWidth = 2; ctx.font = '12px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+    dets.forEach(d => {
+      const item = CLASSES.find(k => k.id === d.label) || CLASSES[0];
+      const c = item.color;
+      const x = ox + d.x*fw, y = oy + d.y*fh, bw = d.w*fw, bh = d.h*fh;
+      ctx.strokeStyle = c; ctx.strokeRect(x,y,bw,bh);
+      const t = item.name + ($('conf').checked && d.conf != null ? ' ' + Math.round(d.conf*100) + '%' : '');
+      const tw = ctx.measureText(t).width + 8;
+      ctx.fillStyle = c; ctx.fillRect(x, y-18, tw, 18);
+      ctx.fillStyle = '#fff'; ctx.fillText(t, x+4, y-5);
+    });
+  }
+  frames++;
+  const now = performance.now();
+  if (now - lastT > 1000){ if (mode) $('fps').textContent = frames + ' fps'; frames = 0; lastT = now; }
+  raf = requestAnimationFrame(draw);
+}
+
+// ---- sources ----
+async function poll(base){
+  try{
+    const r = await fetch(base + '/state', {cache:'no-store'});
+    render(await r.json()); errors = 0;
+  }catch(e){
+    if (++errors === 3) log('Lost contact with /state at ' + base);
+  }
+}
+function stop(){
+  clearInterval(timer); timer = null; mode = null;
+  $('mjpeg').hidden = true; $('mjpeg').removeAttribute('src');
+  const v = $('cam'); v.hidden = true;
+  if (v.srcObject){ v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
+  dets = []; setLive(false, 'Disconnected'); showMsg('Pick a source and press Connect.');
+}
+async function start(){
+  stop();
+  const src = $('src').value, base = $('url').value.replace(/\/$/, '');
+  if (src === 'demo'){
+    mode = 'demo'; showMsg(''); setLive(true, 'Demo mode');
+    log('Demo started. Numbers are simulated.'); timer = setInterval(demoTick, 600);
+  } else if (src === 'mjpeg'){
+    mode = 'mjpeg'; showMsg('Connecting to ' + base + '/video');
+    const img = $('mjpeg'); img.hidden = false;
+    img.onload = () => { showMsg(''); setLive(true, 'Live: ' + base); };
+    img.onerror = () => { setLive(false, 'Stream error'); showMsg('Cannot reach ' + base + '/video. Is server.py running?'); };
+    img.src = base + '/video?t=' + Date.now();
+    log('Connecting to ' + base); timer = setInterval(() => poll(base), 300);
+  } else {
+    try{
+      const s = await navigator.mediaDevices.getUserMedia({video:{width:1280,height:960}});
+      mode = 'webcam'; $('cam').srcObject = s; $('cam').hidden = false;
+      showMsg(''); setLive(true, 'Webcam (no detections)'); log('Webcam started');
+    }catch(e){ showMsg('Webcam blocked: ' + e.message); }
+  }
+}
+
+// ---- demo data ----
+const demoPills = [];
+function demoTick(){
+  if (demoPills.length < 5 && Math.random() < .7){
+    const c = CLASSES[Math.floor(Math.random()*CLASSES.length)];
+    demoPills.push({label:c.id, conf:.82+Math.random()*.17, x:Math.random()*.8+.05, y:Math.random()*.7+.1, w:.07, h:.07, age:0});
+  }
+  const events = []; let target = null;
+  demoPills.forEach(p => { p.age++; p.x += .01; });
+  const done = demoPills.find(p => p.age > 6);
+  if (done){
+    counts[done.label]++; picks.push(Date.now());
+    events.push('Sorted ' + CLASSES.find(c => c.id === done.label).name + ' (' + Math.round(done.conf*100) + '%)');
+    demoPills.splice(demoPills.indexOf(done), 1);
+  }
+  if (demoPills[0]) target = demoPills[0].label;
+  picks = picks.filter(t => Date.now() - t < 60000);
+  render({detections: demoPills.map(p => ({...p})), counts, mis_sorts: 0,
+    robot:{state: target ? 'picking' : 'idle', target, picks_per_min: picks.length, latency_ms: Math.round(18+Math.random()*8)}, events});
+}
+
+$('go').onclick = start; $('stop').onclick = stop;
+$('src').onchange = () => $('url').style.display = $('src').value === 'mjpeg' ? '' : 'none';
+$('src').onchange();
+draw();
+</script>
+</body>
+</html>
