@@ -5,3 +5,9 @@
 !/data/frames_filtered/**/*.jpg
 
 data/frames_filtered/
+
+*.zip
+
+datasets/
+outputs/
+*.zip
